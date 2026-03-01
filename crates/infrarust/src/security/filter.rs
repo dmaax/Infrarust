@@ -97,6 +97,12 @@ impl ConfigValue {
 pub trait Filter: Send + Sync + Debug {
     async fn filter(&self, stream: &TcpStream) -> io::Result<()>;
 
+    /// Filter a UDP packet arriving from `addr`.  `data` is the raw payload.
+    /// Default implementation does nothing and allows the packet.
+    async fn filter_udp(&self, _addr: &std::net::SocketAddr, _data: &[u8]) -> io::Result<()> {
+        Ok(())
+    }
+
     fn name(&self) -> &str;
 
     fn filter_type(&self) -> FilterType;
@@ -218,6 +224,16 @@ impl FilterRegistry {
         } else {
             Err(FilterError::NotFound(name.to_string()))
         }
+    }
+
+    /// Apply all enabled filters to a UDP packet.  Fails if any filter returns
+    /// an error; the packet should be dropped.
+    pub async fn filter_udp(&self, addr: &std::net::SocketAddr, data: &[u8]) -> io::Result<()> {
+        let filters = self.filters.read().await;
+        for entry in filters.values().filter(|e| e.enabled) {
+            entry.filter.filter_udp(addr, data).await?;
+        }
+        Ok(())
     }
 
     pub async fn get_filter(&self, name: &str) -> Result<Arc<dyn Filter>, FilterError> {
@@ -420,6 +436,41 @@ mod tests {
         fn as_any(&self) -> &dyn Any {
             self
         }
+    }
+
+    #[tokio::test]
+    async fn test_udp_filter_registry() {
+        #[derive(Debug)]
+        struct UdpFailFilter;
+        #[async_trait]
+        impl Filter for UdpFailFilter {
+            async fn filter(&self, _: &TcpStream) -> io::Result<()> {
+                Ok(())
+            }
+            async fn filter_udp(
+                &self,
+                _addr: &std::net::SocketAddr,
+                _data: &[u8],
+            ) -> io::Result<()> {
+                Err(io::Error::other("udp drop"))
+            }
+            fn name(&self) -> &str {
+                "udp_fail"
+            }
+            fn filter_type(&self) -> FilterType {
+                FilterType::Custom(0)
+            }
+            fn as_any(&self) -> &dyn Any {
+                self
+            }
+        }
+
+        let registry = FilterRegistry::new();
+        registry.register(UdpFailFilter).await.unwrap();
+        let addr: std::net::SocketAddr = "127.0.0.1:12345".parse().unwrap();
+        let buf = b"foo";
+        let res = registry.filter_udp(&addr, buf).await;
+        assert!(res.is_err());
     }
 
     async fn create_test_connection() -> (TcpStream, TcpStream) {

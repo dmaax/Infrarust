@@ -50,9 +50,34 @@ impl Default for DockerProviderConfig {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::InfrarustConfig;
+
+    #[test]
+    fn merge_udp_bind() {
+        let mut a = InfrarustConfig::default();
+        assert!(a.udp_bind.is_none());
+        let mut b = InfrarustConfig::default();
+        b.udp_bind = Some("0.0.0.0:19132".to_string());
+        a.merge(b);
+        assert_eq!(a.udp_bind.as_deref(), Some("0.0.0.0:19132"));
+    }
+
+    #[test]
+    fn is_empty_considers_udp() {
+        let mut c = InfrarustConfig::default();
+        assert!(c.is_empty());
+        c.udp_bind = Some("1.2.3.4:5".to_string());
+        assert!(!c.is_empty());
+    }
+}
+
 #[derive(Debug, Deserialize, Clone, Default)]
 pub struct InfrarustConfig {
     pub bind: Option<String>,
+    /// UDP bind address for Bedrock/Geyser support (e.g. "0.0.0.0:19132").
+    pub udp_bind: Option<String>,
     pub domains: Option<Vec<String>>,
     pub addresses: Option<Vec<String>>,
     pub keepalive_timeout: Option<Duration>,
@@ -81,10 +106,25 @@ pub struct InfrarustConfig {
     pub motds: ServerMotds,
 
     #[serde(default)]
+    pub legacy: LegacyConfig,
+
+    #[serde(default)]
     pub proxy_protocol: Option<ProxyProtocolConfig>,
 }
 
-#[derive(Clone, Debug, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct LegacyConfig {
+    /// Version name shown in legacy kick responses (v1.4+ format)
+    pub version_name: Option<String>,
+    /// Message shown for direct connect prompts
+    pub connect_message: Option<String>,
+    /// Message shown for unknown servers
+    pub unknown_server_message: Option<String>,
+    /// Message shown for unreachable servers
+    pub unreachable_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct ProxyProtocolConfig {
     pub enabled: bool,
     /// Version to use for outgoing proxy protocol (1 or 2)
@@ -99,12 +139,19 @@ pub struct ProxyProtocolConfig {
 
 impl InfrarustConfig {
     pub fn is_empty(&self) -> bool {
-        self.bind.is_none() && self.domains.is_none() && self.addresses.is_none()
+        self.bind.is_none()
+            && self.udp_bind.is_none()
+            && self.domains.is_none()
+            && self.addresses.is_none()
     }
 
     pub fn merge(&mut self, other: InfrarustConfig) {
         if let Some(bind) = &other.bind {
             self.bind = Some(bind.clone());
+        }
+
+        if let Some(udp_bind) = &other.udp_bind {
+            self.udp_bind = Some(udp_bind.clone());
         }
 
         if let Some(domains) = &other.domains {
@@ -145,6 +192,14 @@ impl InfrarustConfig {
 
         if other.motds.unreachable.is_some() {
             self.motds.unreachable = other.motds.unreachable;
+        }
+
+        if other.legacy.version_name.is_some()
+            || other.legacy.connect_message.is_some()
+            || other.legacy.unknown_server_message.is_some()
+            || other.legacy.unreachable_message.is_some()
+        {
+            self.legacy = other.legacy;
         }
 
         if other.telemetry.enabled {

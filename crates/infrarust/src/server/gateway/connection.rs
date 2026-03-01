@@ -88,7 +88,8 @@ impl Gateway {
             log_type = LogType::TcpConnection.as_str(),
             "Looking up server for domain: {}", request.domain
         );
-        let server_config = self.find_server(&request.domain).await;
+        // prefer TCP-capable configuration when handling a TCP client
+        let server_config = self.find_server_for_tcp(&request.domain).await;
         let server_config = match server_config {
             Some(config) => config,
             None => return,

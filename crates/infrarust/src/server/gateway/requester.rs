@@ -21,17 +21,17 @@ impl ServerRequester for Gateway {
     async fn request_server(&self, req: ServerRequest) -> ProtocolResult<ServerResponse> {
         debug!("Requesting server for domain: {}", req.domain);
         let server_config = match self
-            .find_server(&req.domain)
+            .find_server_for_tcp(&req.domain)
             .instrument(debug_span!("server_request: find_server"))
             .await
         {
             Some(config) => {
-                debug!("Found server for domain: {}", req.domain);
+                debug!("Found TCP-capable server for domain: {}", req.domain);
                 config
             }
             None => {
                 debug!(
-                    "Server not found for domain: {}, using unreachable MOTD",
+                    "TCP server not found for domain: {}, using unreachable MOTD",
                     req.domain
                 );
 

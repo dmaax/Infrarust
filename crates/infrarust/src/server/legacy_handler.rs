@@ -75,7 +75,7 @@ pub async fn handle_legacy_ping(
     let server_config = match &variant {
         LegacyPingVariant::V1_6 { hostname, .. } => gateway.find_server(hostname).await,
         LegacyPingVariant::Beta | LegacyPingVariant::V1_4 => {
-            let response_bytes = generate_legacy_connect_prompt(&variant);
+            let response_bytes = generate_legacy_connect_prompt(&variant, gateway);
             conn.write_raw(&response_bytes).await?;
             conn.flush().await?;
             let _ = conn.close().await;
@@ -109,7 +109,7 @@ pub async fn handle_legacy_ping(
                                 log_type = LogType::PacketProcessing.as_str(),
                                 "Modern fetch also failed: {}, using fallback", e2
                             );
-                            generate_legacy_fallback(&variant, &config)
+                            generate_legacy_fallback(&variant, &config, gateway)
                         }
                     }
                 }
@@ -125,7 +125,7 @@ pub async fn handle_legacy_ping(
                                 log_type = LogType::PacketProcessing.as_str(),
                                 "Modern fetch also failed: {}, using fallback", e
                             );
-                            generate_legacy_fallback(&variant, &config)
+                            generate_legacy_fallback(&variant, &config, gateway)
                         }
                     }
                 }
@@ -136,7 +136,7 @@ pub async fn handle_legacy_ping(
                 log_type = LogType::PacketProcessing.as_str(),
                 "No server config found for legacy ping, sending fallback"
             );
-            generate_legacy_no_server(&variant)
+            generate_legacy_no_server(&variant, gateway)
         }
     };
 
@@ -580,32 +580,61 @@ pub(crate) async fn read_legacy_kick_response(
 fn generate_legacy_fallback(
     variant: &LegacyPingVariant,
     config: &infrarust_config::ServerConfig,
+    gateway: &Arc<Gateway>,
 ) -> Vec<u8> {
     let motd_config = config.motds.unreachable.as_ref();
     match generate_legacy_motd_for_state(&MotdState::Unreachable, motd_config, variant) {
         Ok(bytes) => bytes,
         Err(_) => {
             // Absolute fallback
+            let global_config = gateway.shared.config();
+            let version_name = global_config
+                .legacy
+                .version_name
+                .as_deref()
+                .unwrap_or("Infrarust");
+            let unreachable_message = global_config
+                .legacy
+                .unreachable_message
+                .as_deref()
+                .unwrap_or("Server unreachable");
+
             if variant.uses_v1_4_response_format() {
-                build_legacy_kick_v1_4(0, "Infrarust", "Server unreachable", 0, 0)
+                build_legacy_kick_v1_4(0, version_name, unreachable_message, 0, 0)
             } else {
-                build_legacy_kick_beta("Server unreachable", 0, 0)
+                build_legacy_kick_beta(unreachable_message, 0, 0)
             }
         }
     }
 }
 
-fn generate_legacy_connect_prompt(variant: &LegacyPingVariant) -> Vec<u8> {
+fn generate_legacy_connect_prompt(variant: &LegacyPingVariant, gateway: &Arc<Gateway>) -> Vec<u8> {
+    let config = gateway.shared.config();
+    let version_name = config.legacy.version_name.as_deref().unwrap_or("Infrarust");
+    let connect_message = config
+        .legacy
+        .connect_message
+        .as_deref()
+        .unwrap_or("Direct Connect to join the server.");
+
     if variant.uses_v1_4_response_format() {
-        build_legacy_kick_v1_4(0, "Infrarust", "Direct Connect to join the server.", 0, 0)
+        build_legacy_kick_v1_4(0, version_name, connect_message, 0, 0)
     } else {
-        build_legacy_kick_beta("Connect to join the server.", 0, 0)
+        build_legacy_kick_beta(connect_message, 0, 0)
     }
 }
-fn generate_legacy_no_server(variant: &LegacyPingVariant) -> Vec<u8> {
+fn generate_legacy_no_server(variant: &LegacyPingVariant, gateway: &Arc<Gateway>) -> Vec<u8> {
+    let config = gateway.shared.config();
+    let version_name = config.legacy.version_name.as_deref().unwrap_or("Infrarust");
+    let unknown_message = config
+        .legacy
+        .unknown_server_message
+        .as_deref()
+        .unwrap_or("Unknown server");
+
     if variant.uses_v1_4_response_format() {
-        build_legacy_kick_v1_4(0, "Infrarust", "Unknown server", 0, 0)
+        build_legacy_kick_v1_4(0, version_name, unknown_message, 0, 0)
     } else {
-        build_legacy_kick_beta("Unknown server", 0, 0)
+        build_legacy_kick_beta(unknown_message, 0, 0)
     }
 }

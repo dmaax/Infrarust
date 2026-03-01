@@ -54,6 +54,101 @@ enum ConnectionMode {
     Raw,
 }
 
+/// A lightweight UDP connection wrapper used for Bedrock/Geyser traffic.
+/// Unlike TCP, UDP is message‑based; each call to `read_datagram` returns a full
+/// packet. Many of the helper methods mirror those on `Connection` so that the
+/// higher layers can be generic later.
+#[derive(Debug)]
+pub struct UdpConnection {
+    socket: std::sync::Arc<tokio::net::UdpSocket>,
+    peer: std::net::SocketAddr,
+    pub session_id: Uuid,
+    closed: Arc<AtomicBool>,
+    timeout: Duration,
+    /// original address may come from proxy protocol
+    pub original_client_addr: Option<std::net::SocketAddr>,
+}
+
+impl UdpConnection {
+    pub async fn new(
+        socket: std::sync::Arc<tokio::net::UdpSocket>,
+        peer: std::net::SocketAddr,
+        session_id: Uuid,
+    ) -> io::Result<Self> {
+        Ok(Self {
+            socket,
+            peer,
+            session_id,
+            closed: Arc::new(AtomicBool::new(false)),
+            timeout: Duration::from_secs(30),
+            original_client_addr: None,
+        })
+    }
+
+    pub async fn peer_addr(&self) -> PacketResult<std::net::SocketAddr> {
+        Ok(self.peer)
+    }
+
+    /// Read a single datagram; returns `None` if the socket is closed.
+    pub async fn read_datagram(&mut self) -> io::Result<Option<Vec<u8>>> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Ok(None);
+        }
+        let mut buf = vec![0u8; 2048];
+        match tokio::time::timeout(self.timeout, self.socket.recv_from(&mut buf)).await {
+            Ok(Ok((len, addr))) => {
+                self.peer = addr;
+                buf.truncate(len);
+                Ok(Some(buf))
+            }
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "UDP read timed out",
+            )),
+        }
+    }
+
+    /// Send a datagram to the peer associated with this connection.
+    pub async fn send(&self, data: &[u8]) -> io::Result<usize> {
+        self.socket.send_to(data, self.peer).await
+    }
+
+    pub async fn close(&mut self) -> io::Result<()> {
+        self.closed.store(true, Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::UdpConnection;
+    use std::sync::Arc;
+    use tokio::net::UdpSocket;
+    use uuid::Uuid;
+
+    #[tokio::test]
+    async fn udp_connection_recv() {
+        let sock1 = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let addr1 = sock1.local_addr().unwrap();
+        let sock2 = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let addr2 = sock2.local_addr().unwrap();
+
+        // send a message from sock2 to sock1
+        let msg = b"hello";
+        sock2.send_to(msg, addr1).await.unwrap();
+
+        let mut conn = UdpConnection::new(Arc::new(sock1), addr2, Uuid::new_v4())
+            .await
+            .unwrap();
+        if let Some(data) = conn.read_datagram().await.unwrap() {
+            assert_eq!(&data, msg);
+        } else {
+            panic!("did not receive data");
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Connection {
     reader: PacketReader<BufReader<OwnedReadHalf>>,

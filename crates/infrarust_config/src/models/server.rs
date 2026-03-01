@@ -119,7 +119,13 @@ pub struct ServerManagerConfig {
 #[derive(Debug, Clone, Deserialize)]
 pub struct ServerConfig {
     pub domains: Vec<String>,
+    #[serde(default)]
     pub addresses: Vec<String>,
+    /// Optional list of UDP backend addresses (e.g. Bedrock/Geyser traffic).
+    /// When present and non‑empty, the proxy will prefer these for UDP packets
+    /// instead of the generic `addresses` list.
+    #[serde(rename = "udpAddresses")]
+    pub udp_addresses: Option<Vec<String>>,
     #[serde(rename = "sendProxyProtocol")]
     pub send_proxy_protocol: Option<bool>,
     #[serde(rename = "proxyMode")]
@@ -146,6 +152,7 @@ impl Default for ServerConfig {
         ServerConfig {
             domains: Vec::new(),
             addresses: Vec::new(),
+            udp_addresses: None,
             send_proxy_protocol: Some(false),
             proxy_mode: Some(ProxyModeEnum::default()),
             config_id: String::new(),
@@ -162,7 +169,9 @@ impl Default for ServerConfig {
 
 impl ServerConfig {
     pub fn is_empty(&self) -> bool {
-        self.domains.is_empty() && self.addresses.is_empty()
+        self.domains.is_empty()
+            && self.addresses.is_empty()
+            && self.udp_addresses.as_ref().map_or(true, |v| v.is_empty())
     }
     pub fn get_effective_backend_domain(&self) -> Option<String> {
         if let Some(ref domain) = self.backend_domain {
@@ -202,6 +211,14 @@ mod tests {
     fn test_get_effective_backend_domain_none() {
         let config = ServerConfig::default();
         assert_eq!(config.get_effective_backend_domain(), None);
+    }
+
+    #[test]
+    fn test_udp_addresses_option() {
+        let mut cfg = ServerConfig::default();
+        assert!(cfg.udp_addresses.is_none());
+        cfg.udp_addresses = Some(vec!["1.2.3.4:19132".to_string()]);
+        assert_eq!(cfg.udp_addresses.as_ref().unwrap()[0], "1.2.3.4:19132");
     }
 
     #[test]

@@ -37,6 +37,151 @@ impl ProxyProtocolReader {
         }
     }
 
+    pub fn parse_v1_header_str(header_str: &str) -> ProtocolResult<Option<SocketAddr>> {
+        // Format: "PROXY TCP4 192.168.1.1 192.168.1.2 12345 443\r\n"
+        let parts: Vec<&str> = header_str.split_whitespace().collect();
+
+        if parts.len() < 6 {
+            error!("Invalid proxy protocol v1 header format");
+            return Err(ProxyProtocolError::InvalidHeader(
+                "Invalid v1 format".to_string(),
+            ));
+        }
+
+        if parts[0] != "PROXY" {
+            error!("Invalid proxy protocol header, doesn't start with PROXY");
+            return Err(ProxyProtocolError::InvalidHeader(
+                "Missing PROXY prefix".to_string(),
+            ));
+        }
+
+        let proto = parts[1];
+        let src_addr = parts[2];
+        let src_port = match parts[4].parse::<u16>() {
+            Ok(p) => p,
+            Err(e) => {
+                error!("Invalid source port in proxy protocol: {}", e);
+                return Err(ProxyProtocolError::InvalidHeader(format!(
+                    "Invalid source port: {}",
+                    e
+                )));
+            }
+        };
+
+        let addr = match proto {
+            "TCP4" | "UDP4" => match src_addr.parse() {
+                Ok(ipv4) => Some(SocketAddr::new(std::net::IpAddr::V4(ipv4), src_port)),
+                Err(e) => {
+                    error!("Invalid IPv4 address in proxy protocol: {}", e);
+                    return Err(ProxyProtocolError::InvalidHeader(format!(
+                        "Invalid IPv4: {}",
+                        e
+                    )));
+                }
+            },
+            "TCP6" | "UDP6" => match src_addr.parse() {
+                Ok(ipv6) => Some(SocketAddr::new(std::net::IpAddr::V6(ipv6), src_port)),
+                Err(e) => {
+                    error!("Invalid IPv6 address in proxy protocol: {}", e);
+                    return Err(ProxyProtocolError::InvalidHeader(format!(
+                        "Invalid IPv6: {}",
+                        e
+                    )));
+                }
+            },
+            "UNKNOWN" => None,
+            _ => {
+                error!("Unknown protocol family in proxy protocol: {}", proto);
+                return Err(ProxyProtocolError::InvalidHeader(format!(
+                    "Unknown protocol: {}",
+                    proto
+                )));
+            }
+        };
+
+        debug!("Parsed proxy protocol v1, client addr: {:?}", addr);
+        Ok(addr)
+    }
+
+    /// Parse a proxy protocol header from the beginning of a byte buffer.
+    ///
+    /// Returns the parsed client address (if any) and the number of bytes consumed
+    /// from the buffer. If the header is disabled or absent, returns `Ok((None,0))`.
+    pub fn parse_header_bytes(&self, buf: &[u8]) -> ProtocolResult<(Option<SocketAddr>, usize)> {
+        if !self.enabled {
+            return Ok((None, 0));
+        }
+
+        if buf.len() >= 5 && buf.starts_with(PROXY_PROTOCOL_V1_SIGNATURE) {
+            // look for CRLF terminator
+            if let Some(pos) = buf.windows(2).position(|w| w == b"\r\n") {
+                let header_str = std::str::from_utf8(&buf[..pos + 2]).map_err(|e| {
+                    ProxyProtocolError::InvalidHeader(format!("Invalid UTF-8: {}", e))
+                })?;
+                let addr = Self::parse_v1_header_str(header_str)?;
+                return Ok((addr, pos + 2));
+            } else {
+                return Err(ProxyProtocolError::Other(
+                    "Incomplete proxy v1 header".to_string(),
+                ));
+            }
+        }
+
+        if buf.len() >= 12 && buf.starts_with(PROXY_PROTOCOL_V2_SIGNATURE) {
+            if buf.len() < 16 {
+                return Err(ProxyProtocolError::Other(
+                    "Incomplete proxy v2 header".to_string(),
+                ));
+            }
+            let addr_len = ((buf[14] as u16) << 8) | buf[15] as u16;
+            if buf.len() < 16 + addr_len as usize {
+                return Err(ProxyProtocolError::Other(
+                    "Incomplete proxy v2 header".to_string(),
+                ));
+            }
+            let family = buf[13] & 0xF0;
+            let addr_data = &buf[16..16 + addr_len as usize];
+            let addr = match family {
+                0x10 => {
+                    if addr_data.len() >= 12 {
+                        let mut src_ip = [0u8; 4];
+                        src_ip.copy_from_slice(&addr_data[0..4]);
+                        let src_port = ((addr_data[8] as u16) << 8) | addr_data[9] as u16;
+                        Some(SocketAddr::new(
+                            std::net::IpAddr::V4(std::net::Ipv4Addr::from(src_ip)),
+                            src_port,
+                        ))
+                    } else {
+                        return Err(ProxyProtocolError::InvalidLength(addr_data.len()));
+                    }
+                }
+                0x20 => {
+                    if addr_data.len() >= 36 {
+                        let mut src_ip = [0u8; 16];
+                        src_ip.copy_from_slice(&addr_data[0..16]);
+                        let src_port = ((addr_data[32] as u16) << 8) | addr_data[33] as u16;
+                        Some(SocketAddr::new(
+                            std::net::IpAddr::V6(std::net::Ipv6Addr::from(src_ip)),
+                            src_port,
+                        ))
+                    } else {
+                        return Err(ProxyProtocolError::InvalidLength(addr_data.len()));
+                    }
+                }
+                0x00 | 0x30 => None,
+                _ => {
+                    return Err(ProxyProtocolError::InvalidHeader(format!(
+                        "Unknown family: {:#x}",
+                        family
+                    )));
+                }
+            };
+            Ok((addr, 16 + addr_len as usize))
+        } else {
+            Ok((None, 0))
+        }
+    }
+
     pub async fn read_header(&self, stream: &mut TcpStream) -> ProtocolResult<Option<SocketAddr>> {
         if !self.enabled {
             debug!("Proxy protocol reading disabled, skipping header read");
@@ -110,69 +255,7 @@ impl ProxyProtocolReader {
             }
         };
 
-        // Format: "PROXY TCP4 192.168.1.1 192.168.1.2 12345 443\r\n"
-        let parts: Vec<&str> = header_str.split_whitespace().collect();
-
-        if parts.len() < 6 {
-            error!("Invalid proxy protocol v1 header format");
-            return Err(ProxyProtocolError::InvalidHeader(
-                "Invalid v1 format".to_string(),
-            ));
-        }
-
-        if parts[0] != "PROXY" {
-            error!("Invalid proxy protocol header, doesn't start with PROXY");
-            return Err(ProxyProtocolError::InvalidHeader(
-                "Missing PROXY prefix".to_string(),
-            ));
-        }
-
-        let proto = parts[1];
-        let src_addr = parts[2];
-        let src_port = match parts[4].parse::<u16>() {
-            Ok(p) => p,
-            Err(e) => {
-                error!("Invalid source port in proxy protocol: {}", e);
-                return Err(ProxyProtocolError::InvalidHeader(format!(
-                    "Invalid source port: {}",
-                    e
-                )));
-            }
-        };
-
-        let addr = match proto {
-            "TCP4" => match src_addr.parse() {
-                Ok(ipv4) => Some(SocketAddr::new(std::net::IpAddr::V4(ipv4), src_port)),
-                Err(e) => {
-                    error!("Invalid IPv4 address in proxy protocol: {}", e);
-                    return Err(ProxyProtocolError::InvalidHeader(format!(
-                        "Invalid IPv4: {}",
-                        e
-                    )));
-                }
-            },
-            "TCP6" => match src_addr.parse() {
-                Ok(ipv6) => Some(SocketAddr::new(std::net::IpAddr::V6(ipv6), src_port)),
-                Err(e) => {
-                    error!("Invalid IPv6 address in proxy protocol: {}", e);
-                    return Err(ProxyProtocolError::InvalidHeader(format!(
-                        "Invalid IPv6: {}",
-                        e
-                    )));
-                }
-            },
-            "UNKNOWN" => None,
-            _ => {
-                error!("Unknown protocol family in proxy protocol: {}", proto);
-                return Err(ProxyProtocolError::InvalidHeader(format!(
-                    "Unknown protocol: {}",
-                    proto
-                )));
-            }
-        };
-
-        debug!("Parsed proxy protocol v1, client addr: {:?}", addr);
-        Ok(addr)
+        Self::parse_v1_header_str(header_str)
     }
 
     async fn read_v2_header(&self, stream: &mut TcpStream) -> ProtocolResult<Option<SocketAddr>> {
@@ -256,5 +339,76 @@ impl ProxyProtocolReader {
                 )))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::AsyncWriteExt;
+    use tokio::net::TcpStream;
+
+    async fn make_tcp_stream_with_header(header: Vec<u8>) -> TcpStream {
+        // bind a listener and send the header on connection
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            sock.write_all(&header).await.unwrap();
+            sock
+        });
+        let client_stream = TcpStream::connect(addr).await.unwrap();
+        let _ = handle.await;
+        client_stream
+    }
+
+    #[tokio::test]
+    async fn test_read_v1_udp4_header() {
+        let header = b"PROXY UDP4 192.0.2.1 198.51.100.2 12345 19132\r\n".to_vec();
+        let mut stream = make_tcp_stream_with_header(header).await;
+        let reader = ProxyProtocolReader::new(true, 1, None);
+        let addr = reader.read_header(&mut stream).await.unwrap();
+        assert_eq!(addr.unwrap().to_string(), "192.0.2.1:12345");
+    }
+
+    #[tokio::test]
+    async fn test_read_v1_udp6_header() {
+        let header = b"PROXY UDP6 ::1 ::2 54321 19132\r\n".to_vec();
+        let mut stream = make_tcp_stream_with_header(header).await;
+        let reader = ProxyProtocolReader::new(true, 1, None);
+        let addr = reader.read_header(&mut stream).await.unwrap();
+        assert_eq!(addr.unwrap().to_string(), "[::1]:54321");
+    }
+
+    #[test]
+    fn test_parse_v1_header_str_udp4() {
+        let s = "PROXY UDP4 1.2.3.4 5.6.7.8 12345 19132\r\n";
+        let addr = ProxyProtocolReader::parse_v1_header_str(s).unwrap();
+        assert_eq!(addr.unwrap().to_string(), "1.2.3.4:12345");
+    }
+
+    #[test]
+    fn test_parse_v1_header_str_unknown() {
+        let s = "PROXY UNKNOWN 0 0 0 0\r\n";
+        let addr = ProxyProtocolReader::parse_v1_header_str(s).unwrap();
+        assert!(addr.is_none());
+    }
+
+    #[test]
+    fn test_parse_header_bytes_v1() {
+        let reader = ProxyProtocolReader::new(true, 1, None);
+        let buf = b"PROXY UDP4 1.2.3.4 5.6.7.8 12345 19132\r\nhello";
+        let (addr, consumed) = reader.parse_header_bytes(buf).unwrap();
+        assert_eq!(addr.unwrap().to_string(), "1.2.3.4:12345");
+        assert_eq!(consumed, 40); // length of header
+    }
+
+    #[test]
+    fn test_parse_header_bytes_none() {
+        let reader = ProxyProtocolReader::new(true, 1, None);
+        let buf = b"NOTHEADER";
+        let (addr, consumed) = reader.parse_header_bytes(buf).unwrap();
+        assert!(addr.is_none());
+        assert_eq!(consumed, 0);
     }
 }

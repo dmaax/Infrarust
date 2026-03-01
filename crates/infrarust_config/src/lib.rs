@@ -24,7 +24,7 @@ mod tests {
 
         fs::create_dir(&proxies_path).unwrap();
 
-        fs::write(&config_path, "bind: ':25565'\n").unwrap();
+        fs::write(&config_path, "bind: ':25565'\nudp_bind: ':19132'\n").unwrap();
         fs::write(
             proxies_path.join("server1.yml"),
             "domains: ['example.com']\naddresses: ['127.0.0.1:25566']\n",
