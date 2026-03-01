@@ -1,15 +1,15 @@
 bind: "0.0.0.0:25565"
+udp_bind: "0.0.0.0:19132"
 keepAliveTimeout: 30s
 
 # Connection timeouts
-handshake_timeout_secs: 10    # Timeout for initial client handshake (default: 10)
-status_request_timeout_secs: 10  # Timeout for status request processing (default: 10)
+handshake_timeout_secs: 10 # Timeout for initial client handshake (default: 10)
+status_request_timeout_secs: 10 # Timeout for status request processing (default: 10)
 
 filters:
   rateLimiter:
     requestLimit: 10
     windowLength: 1s
-
 
 file_provider:
   proxies_path:
@@ -29,38 +29,38 @@ logging:
 
   regex_filter: "^(Starting Infrarust proxy)" # Example regex to filter out the startup message
 
-  # Configure different log levels for each type 
+  # Configure different log levels for each type
   log_types:
     # Core system logs - keep these visible
     supervisor: "info"
     server_manager: "info"
-    
+
     # Protocol and packet handling - detailed for debugging
     packet_processing: "debug"
     proxy_protocol: "debug"
-    
+
     # Security and filtering
     ban_system: "info"
     authentication: "info"
     filter: "info"
-    
+
     # Configuration and caching
     config_provider: "info"
     cache: "debug"
-    
+
     # MOTD and telemetry - less verbose
     motd: "warn"
     telemetry: "error"
-  
-  # Exclude very noisy log types 
+
+  # Exclude very noisy log types
   exclude_types:
     - "tcp_connection"
     - "packet_processing"
     - "cache"
-  
+
   # Global minimum level - will override type-specific levels if higher
   min_level: "info"
-  
+
   field_prefixes:
     fields: "\n\t\t\t"
     target: "\n\t\t "
@@ -87,7 +87,7 @@ proxy_protocol:
   receive_timeout_secs: 5
   receive_allowed_versions: [1, 2]
 
-# Cache configuration 
+# Cache configuration
 cache:
   status_ttl_seconds: 30
   max_status_entries: 1000
@@ -101,3 +101,10 @@ motds:
     online_players: 0
     text: "§c§lServer Unreachable§r\n§7 Please try again later"
     favicon: ""
+
+# Legacy client configuration (for pre-1.7 clients)
+legacy:
+  version_name: "My Custom Proxy"
+  connect_message: "§6Direct Connect to join the server.§r\n§7Use this address to connect directly."
+  unknown_server_message: "§cUnknown Server§r\n§7This server is not configured on the proxy."
+  unreachable_message: "§cServer Unreachable§r\n§7The server is currently offline."
