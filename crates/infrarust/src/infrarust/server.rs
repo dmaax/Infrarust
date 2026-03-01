@@ -241,8 +241,8 @@ impl Infrarust {
                         let mut _original_addr: Option<SocketAddr> = None;
 
                         // proxy-protocol header is handled only once, on the first packet
-                        if let Some(proxy_config) = &self.shared.config().proxy_protocol {
-                            if proxy_config.receive_enabled {
+                        if let Some(proxy_config) = &self.shared.config().proxy_protocol
+                            && proxy_config.receive_enabled {
                                 let reader = crate::network::proxy_protocol::reader::ProxyProtocolReader::new(
                                     proxy_config.receive_enabled,
                                     proxy_config.receive_timeout_secs.unwrap_or(5),
@@ -253,7 +253,6 @@ impl Infrarust {
                                     data = &data[consumed..];
                                 }
                             }
-                        }
 
                         // apply filters before doing any session work
                         if let Err(e) = self.shared.filter_registry().filter_udp(&addr, data).await {
@@ -338,25 +337,20 @@ impl Infrarust {
     ) -> io::Result<std::net::SocketAddr> {
         let domain_opt = Self::extract_domain_from_payload(data);
 
-        if let Some(domain) = domain_opt {
-            if let Some(gw) = self.shared.gateway() {
-                if let Some(cfg) = gw.find_server(&domain).await {
+        if let Some(domain) = domain_opt
+            && let Some(gw) = self.shared.gateway()
+                && let Some(cfg) = gw.find_server(&domain).await {
                     // prefer udp_addresses if defined
-                    if let Some(addrs) = cfg.udp_addresses.as_ref() {
-                        if let Some(addr_str) = addrs.first() {
-                            if let Ok(addr) = addr_str.parse::<SocketAddr>() {
+                    if let Some(addrs) = cfg.udp_addresses.as_ref()
+                        && let Some(addr_str) = addrs.first()
+                            && let Ok(addr) = addr_str.parse::<SocketAddr>() {
                                 return Ok(addr);
                             }
-                        }
-                    }
-                    if let Some(addr_str) = cfg.addresses.first() {
-                        if let Ok(addr) = addr_str.parse::<SocketAddr>() {
+                    if let Some(addr_str) = cfg.addresses.first()
+                        && let Ok(addr) = addr_str.parse::<SocketAddr>() {
                             return Ok(addr);
                         }
-                    }
                 }
-            }
-        }
 
         // fallback: try every configuration for a UDP address first
         let all = self
@@ -366,23 +360,20 @@ impl Infrarust {
             .await;
 
         for cfg in all.values() {
-            if let Some(addrs) = cfg.udp_addresses.as_ref() {
-                if let Some(addr_str) = addrs.first() {
-                    if let Ok(addr) = addr_str.parse::<SocketAddr>() {
+            if let Some(addrs) = cfg.udp_addresses.as_ref()
+                && let Some(addr_str) = addrs.first()
+                    && let Ok(addr) = addr_str.parse::<SocketAddr>() {
                         return Ok(addr);
                     }
-                }
-            }
         }
 
         // if none of the configs exposed an UDP address, fall back to any
         // generic address just in case
         for cfg in all.values() {
-            if let Some(addr_str) = cfg.addresses.first() {
-                if let Ok(addr) = addr_str.parse::<SocketAddr>() {
+            if let Some(addr_str) = cfg.addresses.first()
+                && let Ok(addr) = addr_str.parse::<SocketAddr>() {
                     return Ok(addr);
                 }
-            }
         }
 
         Err(std::io::Error::new(
@@ -393,13 +384,11 @@ impl Infrarust {
 
     /// Very simple extractor that returns the first token containing a dot.
     fn extract_domain_from_payload(data: &[u8]) -> Option<String> {
-        if let Ok(s) = std::str::from_utf8(data) {
-            if let Some(token) = s.split_whitespace().next() {
-                if token.contains('.') {
+        if let Ok(s) = std::str::from_utf8(data)
+            && let Some(token) = s.split_whitespace().next()
+                && token.contains('.') {
                     return Some(token.to_string());
                 }
-            }
-        }
         None
     }
 
