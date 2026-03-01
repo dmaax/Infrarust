@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  infrarust-dev:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+    volumes:
+      - ..:/workspace:cached
+    command: sleep infinity
+    environment:
+      - CARGO_TERM_COLOR=always
+      - RUST_LOG=debug
+      - RUST_BACKTRACE=1
+    network_mode: host
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - seccomp:unconfined
+
+  # Optional: PostgreSQL for testing (if needed)
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: infrarust
+      POSTGRES_PASSWORD: infrarust
+      POSTGRES_DB: infrarust_test
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    profiles:
+      - testing
+
+  # Optional: Redis for caching (if needed)
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    profiles:
+      - testing
+
+volumes:
+  postgres_data:

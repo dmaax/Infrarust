@@ -1,0 +1,19 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug Infrarust",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/target/debug/infrarust",
+      "args": [
+        "--config-path",
+        "config.yaml",
+        "--no-interactive"
+      ],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "Build Debug",
+      "console": "integratedTerminal"
+    }
+  ]
+}
