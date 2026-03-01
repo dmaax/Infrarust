@@ -21,7 +21,8 @@ Le fichier de configuration principal prend en charge les options suivantes :
 
 ```yaml
 # Configuration de Base
-bind: "0.0.0.0:25565"           # Adresse d'écoute du proxy
+bind: "0.0.0.0:25565"           # Adresse d'écoute du proxy (TCP pour clients Java)
+udp_bind: "0.0.0.0:19132"       # Adresse d'écoute UDP (Bedrock/Geyser)
 keepAliveTimeout: 30s           # Délai d'expiration de la connexion
 
 # Configuration du Fournisseur de Fichiers

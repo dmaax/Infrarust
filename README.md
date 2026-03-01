@@ -1,8 +1,8 @@
 <div align="center" >
     <img width="200" height="auto" src="docs/public/img/logo.svg" alt="Infrarust Logo">
   
-  <h1>Infrarust</h1>
-  <h3>High-Performance Minecraft Reverse Proxy in Rust</h3>
+  <h1>Infrarust (UDP Fork)</h1>
+  <h3>High-Performance Minecraft Reverse Proxy in Rust with UDP/Bedrock support</h3>
     <div class="badges-container">
     <a href="https://crates.io/crates/infrarust" class="badge-link">
       <img alt="Crates.io" src="https://img.shields.io/crates/v/infrarust?style=flat-square" />
@@ -14,13 +14,22 @@
 </div>
 
 > [!WARNING]
-> Infrarust is currently in active development. This project is a Rust implementation inspired by [Infrared](https://infrared.dev/), focusing on performance and enhanced features.
+> This repository is a **fork** of `Shadowner/Infrarust` that adds experimental
+> UDP listener support for Bedrock/Geyser traffic.  The original project is
+> still maintained upstream; refer to that version for vanilla TCP‑only use
+> cases.  For now this fork is considered an MVP and may diverge from the
+> official release.
+>
+> Infrarust itself is in active development. It’s a Rust implementation inspired
+> by [Infrared](https://infrared.dev/), focusing on performance and enhanced
+> features.
 
 A blazing fast Minecraft reverse proxy that allows you to expose multiple Minecraft servers through a single port. It uses domain/subdomain-based routing to direct clients to specific Minecraft servers.
 
 ## Key Features
 
 - [x] Efficient Reverse Proxy
+  - [x] UDP listener / Bedrock support (this fork)
   - [x] Wildcard Domain Support
   - [x] Multi-Domain Routing
   - [x] Direct IP Connection Support
@@ -70,6 +79,8 @@ Create a `config.yaml` file:
 
 ```yaml
 bind: "0.0.0.0:25565"
+# UDP listener for Bedrock (19132 default)
+udp_bind: "0.0.0.0:19132"
 file_provider:
   proxies_path: ["./proxies"]
   watch: true  # Enable hot-reload

@@ -18,7 +18,8 @@ Créez un fichier `config.yaml` dans votre répertoire de travail :
 
 ```yaml
 # Configuration minimale
-bind: "0.0.0.0:25565"  # Adresse d'écoute
+bind: "0.0.0.0:25565"  # Adresse d'écoute (Java/TCP)
+udp_bind: "0.0.0.0:19132"  # Ecoute UDP optionnelle pour Bedrock/Geyser
 keepAliveTimeout: 30s
 filters:
   rateLimiter:

@@ -17,7 +17,8 @@ Create a `config.yaml` file in your working directory:
 
 ```yaml
 # Minimal configuration
-bind: "0.0.0.0:25565"  # Listening address
+bind: "0.0.0.0:25565"  # Listening address (Java/TCP)
+udp_bind: "0.0.0.0:19132"  # Optional UDP listener for Bedrock/Geyser
 keepAliveTimeout: 30s
 filters:
   rateLimiter:

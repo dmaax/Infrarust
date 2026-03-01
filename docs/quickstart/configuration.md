@@ -21,7 +21,8 @@ The main configuration file supports the following options:
 
 ```yaml
 # Basic Configuration
-bind: "0.0.0.0:25565"           # Address to bind the proxy to
+bind: "0.0.0.0:25565"           # Address to bind the proxy to (TCP for Java clients)
+udp_bind: "0.0.0.0:19132"       # Address to bind UDP listener (Bedrock/Geyser)
 keepAliveTimeout: 30s           # Connection keepalive timeout
 
 # File Provider Configuration
